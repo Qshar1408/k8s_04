@@ -75,6 +75,100 @@
   - `service-nodeport.yaml`
 - Скриншоты проверки доступа (`curl` или браузер).
 
+### Решение:
+
+1) Создал файл deployment со следующим содержимым:
+
+```bash
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: dep-multitool
+  name: dep-multitool
+  namespace: default
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: multitool
+  template:
+    metadata:
+      labels:
+        app: multitool
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 80
+      - name: multitool
+        image: wbitt/network-multitool:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: HTTP_PORT
+          value: "8080"
+```
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_001.png)
+
+2) Далее создал Service для обеспечения доступа внутри кластера до контейнеров приложения из п.1 по порту 9001 — nginx 80, по 9002 — multitool 8080
+
+```bash
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc-multitool
+spec:
+  selector:
+    app: multitool
+  ports:
+    - name: for-nginx
+      port: 9001
+      targetPort: 80
+    - name: for-multitool
+      port: 9002
+      targetPort: 8080
+```
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_002.png)
+
+3) Далее, создал отдельный Pod с приложением multitool. Проверил с помощью curl, что из пода есть доступ до приложения из п.1 по разным портам в разные контейнеры:
+
+```bash
+apiVersion: v1
+kind: Pod
+metadata:
+  labels:
+    app: pod-multitool
+  name: pod-multitool
+  namespace: default
+spec:
+  containers:
+  - name: multitool
+    image: wbitt/network-multitool:latest
+    ports:
+      - containerPort: 8090
+        name: multitool-port
+```
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_003.png)
+
+4) Проверил изнутри контейнера через curl подключение:
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_004.png)
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_005.png)
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_006.png)
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_013.png)
+
+5) Проверил доступ с помощью curl по доменному имени сервиса:
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_014.png)
+
 ---
 ## **Задание 2: Настройка Ingress**
 ### **Задача**
@@ -107,6 +201,142 @@
   - `service-backend.yaml`
   - `ingress.yaml`
 - Скриншоты проверки доступа (`curl` или браузер).
+
+### Решение:
+
+1. Устанавливаем ingress
+
+```bash
+microk8s enable ingress
+```
+
+2. Создал манифест deployment-frontend.yaml, запустил deployment-frontend:
+
+```bash
+piVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: frontend
+  template:
+    metadata:
+      labels:
+        app: frontend
+    spec:
+      containers:
+      - name: nginx
+        image: nginx
+        ports:
+        - containerPort: 80
+```
+
+3. Создал манифест deployment-backend.yaml, запустил deployment-backend:
+
+```bash
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: backend
+  template:
+    metadata:
+      labels:
+        app: backend
+    spec:
+      containers:
+      - name: multitool
+        image: wbitt/network-multitool
+        ports:
+        - containerPort: 8080
+        env:
+        - name: HTTP_PORT
+          value: "8080"
+```
+
+4. Создал манифест service-frontend.yaml, запустил service-frontend:
+
+```bash
+apiVersion: v1
+kind: Service
+metadata:
+  name: frontend-service
+spec:
+  type: ClusterIP
+  selector:
+    app: frontend
+  ports:
+  - port: 80
+    targetPort: 80
+```
+
+5. Создал манифест service-backend.yaml, запустил service-backend:
+
+```bash
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+spec:
+  type: ClusterIP
+  selector:
+    app: backend
+  ports:
+  - port: 80
+    targetPort: 8080
+```
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_007.png)
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_008.png)
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_009.png)
+
+6. Создал манифест ingress.yaml, запустил ingress:
+
+```bash
+piVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: example-ingress
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: public
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: frontend-service
+            port:
+              number: 80
+      - path: /api
+        pathType: Prefix
+        backend:
+          service:
+            name: backend-service
+            port:
+              number: 80
+```
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_012.png)
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_010.png)
+
+7. Проверяем доступность
+
+![k8s_04](https://github.com/Qshar1408/k8s_04/blob/main/img/k8s_04_011.png)
+
 
 ---
 ## Шаблоны манифестов с учебными комментариями
